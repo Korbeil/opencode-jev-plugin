@@ -5,11 +5,10 @@ user message is screened (TypeSafe Jev `noul` battery + severity `score`), and
 hazardous ones are escalated to the OpenCode permission prompt so you decide.
 Jev failure of any kind → fail-open: work is never blocked by a broken screen.
 
-Optional, opt-in features ship beside the guardrails:
+Optional, opt-in features are specified but **not yet implemented**:
 
-- **model routing** (phase 2) — enabled by the presence of a `routing` config object
-- **context compaction** (phase 3) — disabled by default, enabled with
-  `"modules": { "compaction": true }`
+- **model routing** — planned, specified in `spec/SPEC.md`
+- **context compaction** — planned, specified in `spec/SPEC.md`
 
 ## Why
 
@@ -47,7 +46,7 @@ The plugin itself has **zero runtime dependencies** (plain `fetch`, Node 20+).
         "policy": "strict",
         "policies": { "strict": {"action": 0.7, "review": 0.35, "severityBlock": 2.0},
                       "permissive": {"action": 0.85, "review": 0.35, "severityBlock": 2.0} },
-        "modules": { "guardrails": true, "routing": false, "compaction": false },
+        "modules": { "guardrails": true },
         "timeoutMs": 2000
       }
     ]
@@ -64,8 +63,8 @@ sessions, rotate regularly.
 | Feature | Enabled when |
 |---|---|
 | guardrails | default on (`"modules": { "guardrails": true }`) |
-| model routing | you add a **`routing` config object** (presence = enabled) |
-| compaction | explicit boolean `"modules": { "compaction": true }` |
+| model routing | **not yet implemented** — see `spec/SPEC.md` |
+| compaction | **not yet implemented** — see `spec/SPEC.md` |
 
 ## Reference — defaults & numbers
 
@@ -81,7 +80,7 @@ Any failure (network error, timeout, malformed JSON, missing or out-of-range
 answer) is treated as *cannot evaluate* → **fail-open**: work continues, a
 `warn` entry is logged.
 
-### Guardrails (phase 1) — always screened
+### Guardrails — always screened
 
 - **Battery** (one batched call per item): nouls `destructive_command`,
   `secret_exfiltration`, `prompt_injection`, `credentials_access` plus a
@@ -101,13 +100,16 @@ answer) is treated as *cannot evaluate* → **fail-open**: work continues, a
   → permission **ask** with reason ``Jev guardrails: <hazard> <p 2dp> — <text>``;
   any noul ≥ `review` → pass, annotated + logged; below → pass.
 - Prefilter hits escalate deterministically at cost 0; ask paths are identical.
+- User messages are screened too, but a `chat.message` hook cannot deny a turn:
+  an `ask` outcome is logged as a warning instead of blocking.
 - Invalid `apiKey`/options **disable hooks entirely** with a `WARN` — OpenCode
   itself is never crashed by this plugin.
 
-### Model routing (phase 2) — opt-in, unimplemented design
+### Model routing — planned, not implemented
 
-Everything below is the **designed** behavior (not yet implemented); it becomes
-active the moment you provide the `routing` object with the fields documented.
+Everything below is the **designed** behavior (not yet implemented). It is
+specified in `spec/SPEC.md`; do not expect a `routing` config object to have
+any effect today.
 
 ```jsonc
 "routing": {
@@ -143,10 +145,9 @@ active the moment you provide the `routing` object with the fields documented.
 - **Fail-open**: any Jev error, timeout, malformed answer or cache miss → the
   `chat.params` hook leaves the session's model untouched.
 
-### Compaction (phase 3) — disabled by default
+### Compaction — planned, not implemented
 
-Enabled with `"modules": { "compaction": true }` (opt-in boolean; safe defaults
-otherwise). Designed numbers:
+Not implemented yet; the design below is specified in `spec/SPEC.md`.
 
 - `keepThreshold` = **0.5** (three decisions per tool call: `keep` /
   `keep call, truncate result` / `drop`), lowered adaptively for large sessions;
@@ -192,12 +193,12 @@ src/
 ```
 
 `src/routing/` (battery · decision · cache · route) and `src/compaction/`
-(battery · decision · transcript · compact) follow the same shape once
+(battery · decision · transcript · compact) will follow the same shape once
 implemented and reuse `src/common/` instead of duplicating it; the README
 sections above are the source of truth for their numbers until then.
 
 ## Roadmap
 
-Phase 2 (tiered model routing, `routing` object presence) and phase 3
-(context compaction, `modules.compaction` boolean) are documented above and
-specified in `spec/SPEC.md`; both are intentionally absent from the code for now.
+Tiered model routing (a `routing` config object) and context compaction
+(a `modules.compaction` boolean) are documented above and specified in
+`spec/SPEC.md`; both are intentionally absent from the code for now.
