@@ -1,0 +1,23 @@
+{
+  "name": "opencode-jev-plugin",
+  "version": "0.1.0",
+  "description": "OpenCode plugin adding automated, Jev-powered guardrails for bash commands and user messages",
+  "type": "module",
+  "main": "src/index.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src test",
+    "fix": "biome check --write src test",
+    "check": "npm run typecheck && npm run lint && npm run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}
