@@ -1,22 +1,52 @@
-export type NoulQuestion = { type: "noul" };
+export type NoulQuestion = {
+  type: "noul";
+  instructions?: string;
+  criteria?: { true: string; false: string };
+};
 
-export type ScoreQuestion = { type: "score"; min: number; max: number };
+export type ScoreQuestion = {
+  type: "score";
+  min: number;
+  max: number;
+  instructions?: string;
+  criteria?: string[];
+};
 
-export type JevQuestion = NoulQuestion | ScoreQuestion;
+export type ChoiceQuestion = {
+  type: "choice";
+  instructions?: string;
+  criteria?: Record<string, string>;
+};
+
+export type JevQuestion = NoulQuestion | ScoreQuestion | ChoiceQuestion;
 
 export type JevQuestions = Record<string, JevQuestion>;
 
-export interface JevProbabilityAnswer {
+export interface NoulAnswer {
   probability: number;
 }
 
-export interface JevLevelAnswer {
+export interface ScoreAnswer {
   value: number;
 }
 
-export type JevAnswerPayload = number | JevProbabilityAnswer | JevLevelAnswer;
+export interface ChoiceAnswer {
+  option: string;
+  probabilities: Record<string, number>;
+  confidence: number;
+}
 
-export type JevAnswers<Q> = { [K in keyof Q]: number };
+export type JevAnswerOf<Q> = Q extends NoulQuestion
+  ? NoulAnswer
+  : Q extends ScoreQuestion
+    ? ScoreAnswer
+    : Q extends ChoiceQuestion
+      ? ChoiceAnswer
+      : never;
+
+export type JevAnswers<Q> = { [K in keyof Q]: JevAnswerOf<Q[K]> };
+
+export type JevAnswerPayload = number | NoulAnswer | ScoreAnswer | ChoiceAnswer;
 
 export interface JevState {
   tool: string;

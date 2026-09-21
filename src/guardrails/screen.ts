@@ -1,5 +1,5 @@
+import { askJev } from "../ask/engine.ts";
 import { fixed2, shorten } from "../common/format.ts";
-import { screened } from "../common/screening.ts";
 import type { GuardrailsLogger, LogEntry } from "../logger.ts";
 import type { Policy, PolicyName } from "../types/config.ts";
 import type { JevAnswers, JevAsker } from "../types/jev.ts";
@@ -46,10 +46,6 @@ interface AuditSeed {
   cached: boolean;
 }
 
-interface Evaluated {
-  outcome: DecisionResult;
-}
-
 export async function screen(
   deps: GuardrailsDependencies,
   item: ScreeningItem,
@@ -80,24 +76,27 @@ export async function screen(
     };
   }
 
-  const evaluated = await screened<ScreeningQuestions, Evaluated>({
-    client: deps.client,
-    questions: buildQuestions(),
-    state: buildState(item.tool, item.text, item.cwd, item.lastUserPrompt),
-    evaluate: (answers, elapsedMs) => {
-      const outcome = decide(toScreening(answers), policy);
-      void deps.logger.record(auditEntry(seed, outcome, elapsedMs));
-      return { outcome };
-    },
-    failOpen: (reason, elapsedMs) => {
-      void deps.logger.record({ ...seed, decision: "pass", elapsedMs, warn: reason });
-      return { outcome: { decision: "pass", warn: reason } };
-    },
-  });
-  if (evaluated.outcome.decision === "ask") {
-    return { ...evaluated.outcome, reason: composeAskReason(evaluated.outcome, item.text) };
+  const outcomeOr = await askJev(
+    deps.client,
+    buildState(item.tool, item.text, item.cwd, item.lastUserPrompt),
+    buildQuestions(),
+  );
+  if (!outcomeOr.ok) {
+    await deps.logger.record({
+      ...seed,
+      kind: "guardrail",
+      decision: "pass",
+      elapsedMs: outcomeOr.elapsedMs,
+      warn: outcomeOr.reason,
+    });
+    return { decision: "pass", warn: outcomeOr.reason };
   }
-  return evaluated.outcome;
+  const outcome = decide(toScreening(outcomeOr.answers), policy);
+  void deps.logger.record({ ...auditEntry(seed, outcome, outcomeOr.elapsedMs), kind: "guardrail" });
+  if (outcome.decision === "ask") {
+    return { ...outcome, reason: composeAskReason(outcome, item.text) };
+  }
+  return outcome;
 }
 
 function auditEntry(seed: AuditSeed, outcome: DecisionResult, elapsedMs: number): LogEntry {
@@ -114,9 +113,9 @@ function auditEntry(seed: AuditSeed, outcome: DecisionResult, elapsedMs: number)
 function toScreening(answers: JevAnswers<ScreeningQuestions>): Screening {
   const probabilities: Partial<Record<HazardName, number>> = {};
   for (const hazard of HAZARDS) {
-    probabilities[hazard] = answers[hazard];
+    probabilities[hazard] = answers[hazard].probability;
   }
-  return { probabilities, severity: answers[SEVERITY_NAME] };
+  return { probabilities, severity: answers[SEVERITY_NAME].value };
 }
 
 function composeAskReason(

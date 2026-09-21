@@ -28,11 +28,14 @@ pass / review / block.
 
 | Setting | Value |
 |---|---|
-| Jev unreachable / timeout / malformed answer | **fail-open** — warn, never block work |
+| Jev unreachable / timeout / malformed answer | **fail-open** for guardrails — warn, never block work |
+| Jev error inside the `jev_ask` tool | **fail-visible** — explicit error payload so the model can adapt; never silently pretend success |
 | Screening scope (phase 1) | **bash tool calls + user messages** |
 | Action on high-probability hazard | **escalate to OpenCode permission prompt ("ask")** |
+| `jev_ask` tool | **default on** (`modules.tool: true`); visible to all agents; enabled by a boolean, not by presence of an object |
+| Jev call path | **one shared ask engine (`src/ask/engine.ts`)** — guardrails, the tool, and all future phases (routing, compaction) call it; no feature builds its own call site |
 | API key | **file, directly** — via plugin options in `~/.config/opencode/opencode.json`, no env var |
-| Roadmap | 1. guardrails (v1, shipped) → 2. tiered model routing (designed, unimplemented) → 3. compaction (designed, unimplemented) |
+| Roadmap | 1. guardrails + `jev_ask` tool (v1, shipped) → 2. tiered model routing (designed, unimplemented) → 3. compaction (designed, unimplemented) |
 | Routing difficulty scale | **0–10** score, `difficultyMax` configurable, default **10** |
 | Routing enablement | **presence of the `routing` config object**; no `modules.routing` boolean gate |
 | Routing tier boundaries | **half-open, inclusive `upTo`**: tier i covers `(prev, upTo]`, first tier covers `[0, upTo]` |
@@ -48,16 +51,21 @@ pass / review / block.
 ├── README.md                     # user-facing docs incl. all default numbers
 ├── opencode.jsonc                # sample config: plugin wiring + commented phase 2/3 stanzas
 ├── src/
-│   ├── index.ts                  # plugin entry (plugin factory, hook wiring)
-│   ├── config.ts                 # validate plugin options, resolve policy
+│   ├── index.ts                  # plugin entry (plugin factory, hook wiring; guardrails + tool gated per module)
+│   ├── config.ts                 # validate plugin options, resolve policy + module toggles
 │   ├── jev.ts                    # HTTP client for POST https://api.typesafe.ai/v1/systemone
 │   ├── logger.ts                 # appends decision records to a log file
+│   ├── ask/
+│   │   └── engine.ts             # askJev() — THE call path: ok/answers|reason + elapsed; callers log
+│   ├── asktool/                  # jev_ask tool (LLM-facing surface of the engine)
+│   │   ├── ask.ts                # tool("jev_ask") definition: args state/spec/questions, execute, formatting
+│   │   ├── questions.ts          # inline question validation (noul / choice / score; strict field rules)
+│   │   └── spec.ts               # spec loading: ~/.config/jev/specs/<name>.json or explicit path
 │   ├── common/                   # shared runtime helpers (no duplicates across features)
 │   │   ├── guards.ts             # isRecord, finiteNumber, numberInRange
-│   │   ├── format.ts             # fixed2, shorten, pickHighest
-│   │   └── screening.ts          # screened() — ask→evaluate/fail-open runner with timing
+│   │   └── format.ts             # fixed2, shorten, pickHighest
 │   ├── types/                    # shared type declarations
-│   │   ├── jev.ts                # question/answer/state models
+│   │   ├── jev.ts                # question/answer/state models (per-type answers incl. choice)
 │   │   ├── config.ts             # Policy, PluginConfig, RawPluginOptions, resolve results
 │   │   └── screening.ts          # hazards, decisions, severity scale
 │   └── guardrails/               # feature folder (one per feature)
@@ -96,7 +104,7 @@ in sync with `src/`, near:
         "strict":     { "action": 0.70, "review": 0.35, "severityBlock": 2.0 },
         "permissive": { "action": 0.85, "review": 0.35, "severityBlock": 2.0 }
       },
-      "modules": { "guardrails": true, "routing": false, "compaction": false },
+      "modules": { "guardrails": true, "tool": true, "routing": false, "compaction": false },
       "timeoutMs": 2000
     }]
   ]
@@ -137,9 +145,39 @@ Hooks: `tool.execute.before` (bash only; prefilter first, then battery), and
 JSON line per screening to `~/.cache/opencode/jev-guardrails.log`
 (`{ts, tool, hazard, probability, severity, decision, policy, elapsedMs, cached}`).
 
+## Phase 1.5 (shipped): the `jev_ask` tool
+
+Enabled by the boolean `modules.tool` (**default true**). Registers an
+OpenCode custom tool `jev_ask` via the plugin `tool` hook, so every agent and
+model in the session can call it — including `plan` mode and subagents; the
+user restricts it via their own `permission` config if needed.
+
+- Args: `state` (string, trimmed, <32K tokens), and either inline
+  `questions` (spec-format map: type/instructions/criteria only — unknown
+  fields rejected before the request) or `spec` (name under
+  `~/.config/jev/specs/` or an explicit `.json` path; `spec` and `questions`
+  are mutually exclusive).
+- Question shapes: `noul` (criteria needs both `true` and `false` when
+  present), `choice` (≥2 options), `score` (2–10 labels low→high, min 0,
+  max levels−1, API hard limit 10).
+- One batched call per invocation through `askJev()`; the plugin logs one
+  entry (`kind: "tool"`, `decision: "answered"|"error"`).
+- **Fail-visible**: validation problems and Jev errors return an explicit
+  `jev_ask could not run/evaluate: <reason>` message so the model can correct
+  its call or degrade — the opposite of the guardrails' silent fail-open, and
+  deliberate (the model needs to *see* the failure).
+- Result format (plain text, one line per question): `name: yes (p=0.97)` /
+  `name: <option> (confidence=0.80)` / `name: <value>` for scores.
+- Description steers the model away from generation/extraction tasks (Jev
+  only decides) and towards batching all questions about an input in one call.
+- The `@opencode-ai/plugin` package is a devDependency only (tool helper +
+  types); the plugin source itself keeps zero runtime dependencies.
+
 ## Phase 2 (designed, unimplemented): tiered model routing
 
 Enabled by the **presence of the `routing` config object**. Locked design:
+all Jev calls go through `askJev()` (the shared ask engine); routing must not
+depend on the LLM calling the `jev_ask` tool.
 
 - On `chat.message`, one batched classification call: `intent` (**choice**:
   coding, explanation, ops, conversational), `difficulty` (**score 0–10**,
@@ -165,7 +203,8 @@ Enabled by the **presence of the `routing` config object**. Locked design:
 
 Enabled by the **boolean** `"modules": { "compaction": true }` (default off;
 sensible defaults otherwise: `keepThreshold` 0.5, adaptive lowering for large
-sessions). Method (ported from `fast-jev-compaction`, improved):
+sessions). Method (ported from `fast-jev-compaction`, improved); all Jev calls
+go through `askJev()` — plugin-internal, never via the LLM tool:
 
 - Pin the first message and the newest N; pair every `tool_use` with its
   `tool_result` by id; never remove text messages or mutate kept content.

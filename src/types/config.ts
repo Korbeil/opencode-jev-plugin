@@ -8,6 +8,7 @@ export type PolicyName = "strict" | "permissive";
 
 export interface ModuleToggles {
   guardrails: boolean;
+  tool: boolean;
   routing: boolean;
   compaction: boolean;
 }
