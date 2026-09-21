@@ -11,7 +11,7 @@ const QUESTIONS = {
 const STATE = { tool: "bash", text: "ls -la" };
 
 interface Harness {
-  ask: (state: typeof STATE) => Promise<Record<string, number>>;
+  ask: (state: typeof STATE) => Promise<Record<string, unknown>>;
   calls: number[];
   bodies: unknown[];
 }
@@ -48,7 +48,10 @@ describe("JevClient.ask", () => {
         answers: { destructive_command: { probability: 0.42 }, severity: { value: 1 } },
       }),
     }));
-    expect(await c.ask(STATE)).toEqual({ destructive_command: 0.42, severity: 1 });
+    expect(await c.ask(STATE)).toEqual({
+      destructive_command: { probability: 0.42 },
+      severity: { value: 1 },
+    });
     expect(c.calls.length).toBe(1);
   });
 
@@ -78,7 +81,10 @@ describe("JevClient.ask", () => {
         json: async () => ({ answers: { destructive_command: 0.3, severity: 0 } }),
       };
     });
-    expect(await c.ask(STATE)).toEqual({ destructive_command: 0.3, severity: 0 });
+    expect(await c.ask(STATE)).toEqual({
+      destructive_command: { probability: 0.3 },
+      severity: { value: 0 },
+    });
     expect(c.calls.length).toBe(2);
   });
 
@@ -130,7 +136,40 @@ describe("JevClient.ask", () => {
       { a: 0.5, s: 2 },
       { a: { type: "noul" }, s: { type: "score", min: 0, max: 3 } },
     );
-    expect(answers).toEqual({ a: 0.5, s: 2 });
+    expect(answers).toEqual({ a: { probability: 0.5 }, s: { value: 2 } });
+  });
+
+  it("parses a choice answer with option, distribution and confidence", () => {
+    const answers = parseAnswers(
+      {
+        answers: {
+          c: {
+            option: "code",
+            probabilities: { code: 0.9, research: 0.1 },
+            confidence: 0.8,
+          },
+        },
+      },
+      { c: { type: "choice" } },
+    );
+    expect(answers).toEqual({
+      c: { option: "code", probabilities: { code: 0.9, research: 0.1 }, confidence: 0.8 },
+    });
+  });
+
+  it("rejects a malformed choice answer", () => {
+    expect(() =>
+      parseAnswers({ answers: { c: { option: "x" } } }, { c: { type: "choice" } }),
+    ).toThrowError(JevError);
+  });
+
+  it("rejects a choice with an out-of-range distribution entry", () => {
+    expect(() =>
+      parseAnswers(
+        { answers: { c: { option: "x", probabilities: { x: 1.5 }, confidence: 0.5 } } },
+        { c: { type: "choice" } },
+      ),
+    ).toThrowError(/out-of-range/);
   });
 
   it("treats a stalled response as a timeout, which fails open upstream", async () => {

@@ -5,14 +5,17 @@ import path from "node:path";
 export interface LogEntry {
   ts: string;
   tool: string;
+  kind?: string;
   hazard?: string;
   probability?: number;
   severity?: number;
+  question?: string;
   decision: string;
   policy: string;
   elapsedMs: number;
   cached: boolean;
   warn?: string;
+  error?: string;
 }
 
 export interface GuardrailsLogger {

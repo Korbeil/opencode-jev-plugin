@@ -1,3 +1,4 @@
+import { ASK_TOOL_NAME, createAskTool } from "./asktool/ask.ts";
 import { resolveOptions } from "./config.ts";
 import { screen } from "./guardrails/screen.ts";
 import { JevClient } from "./jev.ts";
@@ -33,6 +34,7 @@ interface ChatMessageInput {
 
 export interface JevPluginHooks {
   config?: (input: unknown) => Promise<void>;
+  tool?: { [key: string]: unknown };
   "tool.execute.before"?: (
     input: ToolExecuteBeforeInput,
     output: ToolExecuteBeforeOutput,
@@ -53,8 +55,6 @@ export const JevGuardrailsPlugin = async (context: PluginContext = {}): Promise<
   const { config, warnings } = resolved;
   for (const warning of warnings) await logger.warn(warning);
 
-  if (!config.modules.guardrails) return {};
-
   let lastUserPrompt: string | undefined;
 
   const deps = {
@@ -71,11 +71,24 @@ export const JevGuardrailsPlugin = async (context: PluginContext = {}): Promise<
   const screenItem = (tool: ScreenTool, text: string, cwd?: string) =>
     screen(deps, { tool, text, cwd, lastUserPrompt });
 
-  return {
-    config: async () => {
+  const hooks: JevPluginHooks = {};
+
+  if (config.modules.tool) {
+    hooks.config = async () => {
       return;
-    },
-    "tool.execute.before": async (input, output) => {
+    };
+    hooks.tool = {
+      [ASK_TOOL_NAME]: createAskTool({ client: deps.client, logger }),
+    };
+  }
+
+  if (config.modules.guardrails) {
+    if (hooks.config === undefined) {
+      hooks.config = async () => {
+        return;
+      };
+    }
+    hooks["tool.execute.before"] = async (input, output) => {
       if (input?.tool !== "bash") return;
       const command = output?.args?.command;
       if (typeof command !== "string" || command.trim() === "") return;
@@ -83,8 +96,8 @@ export const JevGuardrailsPlugin = async (context: PluginContext = {}): Promise<
       if (result.decision === "ask" && output !== undefined) {
         output.permission = { status: "ask" };
       }
-    },
-    "chat.message": async (input) => {
+    };
+    hooks["chat.message"] = async (input) => {
       const text = extractMessageText(input?.message);
       if (text === undefined) return;
       const result = await screenItem("user", text);
@@ -94,8 +107,10 @@ export const JevGuardrailsPlugin = async (context: PluginContext = {}): Promise<
         );
       }
       lastUserPrompt = text;
-    },
-  };
+    };
+  }
+
+  return hooks;
 };
 
 export default JevGuardrailsPlugin;

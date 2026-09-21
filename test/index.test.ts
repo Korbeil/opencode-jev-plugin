@@ -14,7 +14,7 @@ const HOOK_OPTS = {
     strict: { action: 0.7, review: 0.35, severityBlock: 2.0 },
     permissive: { action: 0.85, review: 0.35, severityBlock: 2.0 },
   },
-  modules: { guardrails: true, routing: false, compaction: false },
+  modules: { guardrails: true, tool: true, routing: false, compaction: false },
   timeoutMs: 2000,
 };
 
@@ -31,11 +31,20 @@ describe("JevGuardrailsPlugin", () => {
     expect(hooks["chat.message"]).toBeDefined();
   });
 
-  it("exposes nothing when the guardrails module is disabled", async () => {
+  it("exposes nothing when every module is disabled", async () => {
     const hooks = await JevGuardrailsPlugin({
-      options: { ...HOOK_OPTS, modules: { guardrails: false, routing: false, compaction: false } },
+      options: {
+        ...HOOK_OPTS,
+        modules: { guardrails: false, tool: false, routing: false, compaction: false },
+      },
     });
     expect(Object.keys(hooks)).toEqual([]);
+  });
+
+  it("registers the jev_ask tool by default (modules.tool defaults on)", async () => {
+    const hooks = await JevGuardrailsPlugin({ options: HOOK_OPTS });
+    expect(hooks.tool).toBeDefined();
+    expect(Object.keys(hooks.tool ?? {})).toEqual(["jev_ask"]);
   });
 
   it("ignores non-bash tools", async () => {

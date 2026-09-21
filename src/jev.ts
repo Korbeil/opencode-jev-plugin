@@ -1,10 +1,13 @@
 import { finiteNumber, isRecord, numberInRange } from "./common/guards.ts";
 import type {
+  ChoiceAnswer,
   JevAnswerPayload,
   JevAnswers,
   JevQuestion,
   JevQuestions,
   JevState,
+  NoulAnswer,
+  ScoreAnswer,
 } from "./types/jev.ts";
 
 export * from "./types/jev.ts";
@@ -113,17 +116,19 @@ export class JevClient {
 export function parseAnswers<Q extends JevQuestions>(
   payload: unknown,
   questions: Q,
-): Record<string, number> {
+): JevAnswers<Q> {
   const container = answerContainer(payload);
-  const answers: Record<string, number> = {};
+  const answers: Record<string, unknown> = {};
   for (const [name, question] of Object.entries<JevQuestion>(questions)) {
     const raw = container[name] as JevAnswerPayload | undefined;
     answers[name] =
       question.type === "noul"
         ? readProbability(raw, name)
-        : readScore(raw, name, question.min, question.max);
+        : question.type === "score"
+          ? readScore(raw, name, question.min, question.max)
+          : readChoice(raw, name);
   }
-  return answers;
+  return answers as JevAnswers<Q>;
 }
 
 function answerContainer(payload: unknown): Record<string, unknown> {
@@ -138,17 +143,17 @@ function answerValue(
 ): number | undefined {
   if (raw === undefined) return undefined;
   if (typeof raw === "number") return finiteNumber(raw);
-  if ("probability" in raw && key === "probability") return finiteNumber(raw.probability);
-  if ("value" in raw && key === "value") return finiteNumber(raw.value);
+  if (typeof raw !== "object") return undefined;
+  if (key in raw) return finiteNumber((raw as unknown as Record<string, unknown>)[key]);
   return undefined;
 }
 
-function readProbability(raw: JevAnswerPayload | undefined, name: string): number {
+function readProbability(raw: JevAnswerPayload | undefined, name: string): NoulAnswer {
   const value = answerValue(raw, "probability");
   if (value === undefined || !numberInRange(value, 0, 1)) {
     throw new JevError(`Jev noul "${name}" is missing or out of range`);
   }
-  return value;
+  return { probability: value };
 }
 
 function readScore(
@@ -156,10 +161,37 @@ function readScore(
   name: string,
   min: number,
   max: number,
-): number {
+): ScoreAnswer {
   const value = answerValue(raw, "value");
   if (value === undefined || !numberInRange(value, min, max)) {
     throw new JevError(`Jev score "${name}" is missing or out of range`);
   }
-  return value;
+  return { value };
+}
+
+function readChoice(raw: JevAnswerPayload | undefined, name: string): ChoiceAnswer {
+  if (raw !== undefined && typeof raw === "object" && !Array.isArray(raw)) {
+    const record = raw as unknown as Record<string, unknown>;
+    const option = record.option ?? record.choice;
+    const confidence = finiteNumber(record.confidence);
+    const probabilities = record.probabilities;
+    if (
+      typeof option === "string" &&
+      option !== "" &&
+      confidence !== undefined &&
+      numberInRange(confidence, 0, 1) &&
+      isRecord(probabilities)
+    ) {
+      const distribution: Record<string, number> = {};
+      for (const [key, value] of Object.entries(probabilities)) {
+        const numeric = finiteNumber(value);
+        if (numeric === undefined || !numberInRange(numeric, 0, 1)) {
+          throw new JevError(`Jev choice "${name}" has an out-of-range probability for "${key}"`);
+        }
+        distribution[key] = numeric;
+      }
+      return { option, probabilities: distribution, confidence };
+    }
+  }
+  throw new JevError(`Jev choice "${name}" is missing or malformed`);
 }

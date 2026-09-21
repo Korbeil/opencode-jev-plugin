@@ -22,6 +22,7 @@ describe("resolveOptions", () => {
       expect(result.config.timeoutMs).toBe(2000);
       expect(result.config.modules).toEqual({
         guardrails: true,
+        tool: true,
         routing: false,
         compaction: false,
       });

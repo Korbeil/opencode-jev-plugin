@@ -28,7 +28,12 @@ export const DEFAULT_POLICIES: Record<PolicyName, Policy> = {
 
 const DEFAULT_MODEL = "jev-latest";
 const DEFAULT_TIMEOUT_MS = 2000;
-const DEFAULT_MODULES: ModuleToggles = { guardrails: true, routing: false, compaction: false };
+const DEFAULT_MODULES: ModuleToggles = {
+  guardrails: true,
+  tool: true,
+  routing: false,
+  compaction: false,
+};
 
 export function resolveOptions(input: unknown): ResolveOk | ResolveFail {
   const warnings: string[] = [];
@@ -172,10 +177,10 @@ function parseModules(
   if (!isRecord(raw)) return { ok: false, reason: 'Option "modules" must be an object' };
   const toggles: Partial<ModuleToggles> = {};
   for (const [name, value] of Object.entries(raw)) {
-    if (name !== "guardrails" && name !== "routing" && name !== "compaction") {
+    if (name !== "guardrails" && name !== "tool" && name !== "routing" && name !== "compaction") {
       return {
         ok: false,
-        reason: `Unknown module "${name}" (expected "guardrails", "routing", "compaction")`,
+        reason: `Unknown module "${name}" (expected "guardrails", "tool", "routing", "compaction")`,
       };
     }
     if (typeof value !== "boolean") {

@@ -42,15 +42,21 @@ export function makeDeps(options: DepsOptions = {}): DepsWithJev {
         if (options.failOnCall) throw new Error("Jev network error: unavailable");
         const rawAnswers = options.payload ?? options.answers;
         if (rawAnswers === undefined) throw new Error("Jev returned a malformed response");
-        const out: Record<string, number> = {};
+        const out: Record<string, unknown> = {};
         for (const name of Object.keys(questions)) {
           const value = (rawAnswers as Record<string, unknown>)[name];
           if (typeof value !== "number") {
             throw new Error(`Jev answer "${name}" is missing or out of range`);
           }
-          out[name] = value;
+          const question = questions[name];
+          out[name] =
+            question?.type === "score"
+              ? { value }
+              : question?.type === "choice"
+                ? { option: String(value), probabilities: {}, confidence: 1 }
+                : { probability: value };
         }
-        return out as JevAnswers<Required<Q>>;
+        return out as unknown as JevAnswers<Required<Q>>;
       },
     },
     logger: {
