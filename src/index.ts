@@ -42,9 +42,13 @@ export interface JevPluginHooks {
   "chat.message"?: (input: ChatMessageInput) => Promise<void>;
 }
 
-export const JevGuardrailsPlugin = async (context: PluginContext = {}): Promise<JevPluginHooks> => {
+export const JevGuardrailsPlugin = async (
+  context: PluginContext = {},
+  tupleOptions?: unknown,
+): Promise<JevPluginHooks> => {
   const logger = createLogger();
-  const resolved = resolveOptions(context.options);
+  const options = context.options ?? tupleOptions;
+  const resolved = resolveOptions(options);
 
   if (!resolved.ok) {
     for (const warning of resolved.warnings) await logger.warn(warning);
